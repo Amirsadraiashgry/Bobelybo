@@ -1,43 +1,184 @@
 <!doctype html>
-<html lang="en">
+<html lang="fa" dir="rtl">
   <head>
     <meta charset="UTF-8" />
-    <link rel="stylesheet" href="/src/styles.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Tauri App</title>
-    <script type="module" src="/src/main.ts" defer></script>
+    <meta name="theme-color" content="#141414" />
+    <meta name="description" content="Bobelybo — کتاب‌خوان شخصی شما" />
+    <title>بابلیبو | کتاب‌خوان</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+    <script type="module" src="/src/main.ts"></script>
   </head>
-
   <body>
-    <main class="container">
-      <h1>Welcome to Tauri</h1>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="#" aria-label="صفحه اصلی بابلیبو">
+          <span class="brand-mark">ب</span>
+          <span class="brand-copy">
+            <strong>بابلیبو</strong>
+            <small>همراه مطالعهٔ تو</small>
+          </span>
+        </a>
 
-      <div class="row">
-        <a href="https://vite.dev" target="_blank">
-          <img src="/src/assets/vite.svg" class="logo vite" alt="Vite logo" />
-        </a>
-        <a href="https://tauri.app" target="_blank">
-          <img
-            src="/src/assets/tauri.svg"
-            class="logo tauri"
-            alt="Tauri logo"
-          />
-        </a>
-        <a href="https://www.typescriptlang.org/docs" target="_blank">
-          <img
-            src="/src/assets/typescript.svg"
-            class="logo typescript"
-            alt="typescript logo"
-          />
-        </a>
+        <button class="add-book" id="add-book">
+          <span class="plus">＋</span>
+          <span>افزودن کتاب</span>
+        </button>
+        <input id="pdf-input" type="file" accept=".pdf,application/pdf" hidden />
+
+        <div class="nav-label">فضای مطالعه</div>
+        <nav class="navigation" aria-label="ناوبری اصلی">
+          <button class="nav-item active" data-view="library">
+            <span class="nav-icon">▤</span>
+            <span>کتابخانه</span>
+          </button>
+          <button class="nav-item" data-view="recent">
+            <span class="nav-icon">◷</span>
+            <span>مطالعهٔ اخیر</span>
+          </button>
+          <button class="nav-item" data-view="bookmarks">
+            <span class="nav-icon">♧</span>
+            <span>نشانک‌ها</span>
+          </button>
+          <button class="nav-item" data-view="notes">
+            <span class="nav-icon">▧</span>
+            <span>یادداشت‌ها</span>
+          </button>
+        </nav>
+
+        <div class="sidebar-bottom">
+          <div class="offline-card">
+            <span class="status-dot"></span>
+            <div>
+              <strong>فضای شخصی تو</strong>
+              <small>طراحی‌شده برای مطالعهٔ متمرکز</small>
+            </div>
+          </div>
+          <button class="nav-item settings-button" id="settings-button">
+            <span class="nav-icon">⚙</span>
+            <span>تنظیمات</span>
+          </button>
+          <div class="sidebar-version">BOBELYBO <span>0.1.0</span></div>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar">
+          <div class="breadcrumb">
+            <span class="breadcrumb-muted">فضای مطالعه</span>
+            <span class="breadcrumb-separator">/</span>
+            <strong id="breadcrumb-current">کتابخانه</strong>
+          </div>
+          <div class="topbar-actions">
+            <span class="local-badge"><span></span> فضای محلی</span>
+            <button class="icon-button" id="theme-toggle" title="تغییر پوسته" aria-label="تغییر پوسته">◐</button>
+          </div>
+        </header>
+
+        <section class="welcome-section">
+          <div class="welcome-copy">
+            <div class="eyebrow"><span class="gold-line"></span> گوشه‌ای برای یادگیری</div>
+            <h1>سلام، <span>صدرا.</span></h1>
+            <p>یک جای راحت پیدا کن، کتابت رو باز کن و ادامه بده.</p>
+          </div>
+          <div class="welcome-decoration" aria-hidden="true">
+            <div class="decoration-ring ring-one"></div>
+            <div class="decoration-ring ring-two"></div>
+            <div class="decoration-book">ب</div>
+            <span class="decoration-star star-one">✳</span>
+            <span class="decoration-star star-two">✧</span>
+          </div>
+        </section>
+
+        <section class="reading-summary" aria-label="خلاصه مطالعه">
+          <div class="summary-item">
+            <div class="summary-icon">▤</div>
+            <div><span>کتاب‌های کتابخانه</span><strong id="book-count">۰</strong></div>
+          </div>
+          <div class="summary-divider"></div>
+          <div class="summary-item">
+            <div class="summary-icon">◷</div>
+            <div><span>وضعیت مطالعه</span><strong class="summary-small">آمادهٔ شروع</strong></div>
+          </div>
+          <div class="summary-divider"></div>
+          <div class="summary-item">
+            <div class="summary-icon">✧</div>
+            <div><span>هدف امروز</span><strong class="summary-small">یک قدم جلوتر</strong></div>
+          </div>
+        </section>
+
+        <section class="library-section" id="library-section">
+          <div class="section-heading">
+            <div>
+              <span class="eyebrow">مجموعهٔ شخصی تو</span>
+              <h2 id="section-title">کتابخانهٔ من</h2>
+            </div>
+            <label class="search-box">
+              <span aria-hidden="true">⌕</span>
+              <input id="book-search" type="search" placeholder="جست‌وجوی کتاب..." />
+              <kbd>/</kbd>
+            </label>
+          </div>
+
+          <div class="filter-row">
+            <button class="filter-chip selected" data-filter="all">همهٔ کتاب‌ها</button>
+            <button class="filter-chip" data-filter="pdf">PDF</button>
+            <span class="results-count" id="results-count">هنوز کتابی اضافه نشده</span>
+          </div>
+
+          <div class="book-grid" id="book-grid"></div>
+
+          <div class="empty-state" id="empty-state">
+            <div class="empty-icon"><span>▤</span><i>＋</i></div>
+            <h3 id="empty-title">کتابخانه‌ات را بساز</h3>
+            <p id="empty-description">اولین کتاب PDF را اضافه کن تا مجموعهٔ شخصی‌ات اینجا شکل بگیرد.</p>
+            <button class="primary-button" id="empty-add-book">
+              <span>＋</span> افزودن اولین کتاب
+            </button>
+            <span class="empty-hint">فایل‌های کتاب از روی دستگاهت انتخاب می‌شوند.</span>
+          </div>
+        </section>
+
+        <footer class="app-footer">
+          <span>ساخته‌شده برای مطالعهٔ عمیق‌تر.</span>
+          <span><i></i> بابلیبو · نسخهٔ آغازین</span>
+        </footer>
+      </main>
+    </div>
+
+    <section class="reader-overlay" id="reader-overlay" hidden
+      aria-label="محیط مطالعه" aria-modal="true" role="dialog">
+      <header class="reader-toolbar">
+        <button class="reader-tool" id="reader-close" aria-label="بازگشت به کتابخانه">← کتابخانه</button>
+        <div class="reader-book-title" id="reader-book-title">عنوان کتاب</div>
+        <div class="reader-toolbar-actions">
+          <button class="reader-tool" id="zoom-out" aria-label="کوچک‌نمایی">−</button>
+          <span id="zoom-label">۱۰۰٪</span>
+          <button class="reader-tool" id="zoom-in" aria-label="بزرگ‌نمایی">＋</button>
+        </div>
+      </header>
+
+      <div class="reader-workspace">
+        <button class="page-arrow" id="prev-page" aria-label="صفحه قبلی">›</button>
+        <div class="pdf-stage" id="pdf-stage">
+          <p class="reader-loading" id="reader-loading">در حال آماده‌سازی کتاب…</p>
+          <canvas id="pdf-canvas" hidden></canvas>
+        </div>
+        <button class="page-arrow" id="next-page" aria-label="صفحه بعدی">‹</button>
       </div>
-      <p>Click on the Tauri logo to learn more about the framework</p>
 
-      <form class="row" id="greet-form">
-        <input id="greet-input" placeholder="Enter a name..." />
-        <button type="submit">Greet</button>
-      </form>
-      <p id="greet-msg"></p>
-    </main>
+      <footer class="reader-footer">
+        <button class="reader-tool" id="page-prev">صفحهٔ قبل</button>
+        <label class="page-counter">
+          صفحه
+          <input id="page-number" type="number" min="1" value="1" aria-label="شماره صفحه" />
+          <span>از</span>
+          <strong id="page-total">—</strong>
+        </label>
+        <button class="reader-tool" id="page-next">صفحهٔ بعد</button>
+      </footer>
+    </section>
+    
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
   </body>
 </html>
