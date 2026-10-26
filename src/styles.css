@@ -1136,3 +1136,28 @@ button {
     width: 30px;
   }
 }
+
+.pdf-page-container {
+  position: relative;
+  flex: 0 0 auto;
+  line-height: 1;
+  background: white;
+  box-shadow: 0 8px 35px #0007;
+}
+
+.pdf-page-container #pdf-canvas {
+  display: block;
+  max-width: none;
+  height: auto;
+  background: white;
+}
+
+/* لایهٔ متن رسمی PDF.js باید روی canvas قرار بگیرد. */
+.pdf-page-container #pdf-canvas {
+  position: relative;
+  z-index: 0;
+}
+
+.pdf-page-container .textLayer {
+  z-index: 1;
+}

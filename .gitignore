@@ -22,3 +22,10 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Local backups
+*.bak
+*.backup
+*.backup-*
+*.before-*
+*.broken

@@ -1,5 +1,8 @@
+import "pdfjs-dist/web/pdf_viewer.css";
 import "./styles.css";
 import * as pdfjsLib from "pdfjs-dist";
+// @ts-ignore -- ماژول مرورگری PDF.js در زمان اجرا توسط Vite بارگذاری می‌شود.
+import * as pdfjsViewer from "pdfjs-dist/web/pdf_viewer.mjs";
 import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import {
   BaseDirectory,
@@ -12,6 +15,23 @@ import {
 } from "@tauri-apps/plugin-fs";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
+
+type TextLayerBuilderInstance = {
+  render(viewport: any): Promise<void>;
+  cancel(): void;
+};
+
+type TextLayerBuilderConstructor = new (options: {
+  pdfPage: pdfjsLib.PDFPageProxy;
+  onAppend?: (div: HTMLDivElement) => void;
+}) => TextLayerBuilderInstance;
+
+const TextLayerBuilder = (
+  pdfjsViewer as unknown as {
+    TextLayerBuilder: TextLayerBuilderConstructor;
+  }
+).TextLayerBuilder;
+
 
 type Book = {
   id: number;
@@ -112,6 +132,7 @@ const readerOverlay = $("#reader-overlay")!;
 const readerTitle = $("#reader-book-title")!;
 const readerLoading = $("#reader-loading")!;
 const pdfCanvas = $("#pdf-canvas") as HTMLCanvasElement;
+const pdfPageContainer = $("#pdf-page-container")!;
 const pdfStage = $("#pdf-stage")!;
 const pageNumberInput = $("#page-number") as HTMLInputElement;
 const pageTotal = $("#page-total")!;
@@ -123,6 +144,17 @@ const pageNextButton = $("#page-next") as HTMLButtonElement;
 
 let currentPdf: pdfjsLib.PDFDocumentProxy | null = null;
 let currentRenderTask: { cancel: () => void; promise: Promise<void> } | null = null;
+
+let currentTextLayerBuilder: TextLayerBuilderInstance | null = null;
+let currentTextLayerDiv: HTMLDivElement | null = null;
+
+function clearTextLayer(): void {
+  currentTextLayerBuilder?.cancel();
+  currentTextLayerBuilder = null;
+  currentTextLayerDiv?.remove();
+  currentTextLayerDiv = null;
+}
+
 let currentPage = 1;
 let currentZoom = 1;
 let currentBookId: number | null = null;
@@ -242,6 +274,8 @@ async function renderPdfPage(): Promise<void> {
 
   const sequence = ++renderSequence;
 
+  clearTextLayer();
+
   if (currentRenderTask) {
     const oldTask = currentRenderTask;
     currentRenderTask = null;
@@ -276,7 +310,32 @@ async function renderPdfPage(): Promise<void> {
     pdfCanvas.style.width = `${viewport.width}px`;
     pdfCanvas.style.height = `${viewport.height}px`;
     pdfCanvas.hidden = false;
+    pdfPageContainer.hidden = false;
     readerLoading.hidden = true;
+
+    // اندازهٔ container باید با viewport مربوط به canvas یکسان باشد.
+    pdfPageContainer.style.width = `${viewport.width}px`;
+    pdfPageContainer.style.height = `${viewport.height}px`;
+    pdfPageContainer.hidden = false;
+
+    // لایهٔ متن رسمی PDF.js؛ موقعیت و انتخاب متن را خودش مدیریت می‌کند.
+    const textLayerBuilder = new TextLayerBuilder({
+      pdfPage: page,
+      onAppend: (div) => {
+        div.style.width = `${viewport.width}px`;
+        div.style.height = `${viewport.height}px`;
+        pdfPageContainer.appendChild(div);
+        currentTextLayerDiv = div;
+      },
+    });
+
+    currentTextLayerBuilder = textLayerBuilder;
+    await textLayerBuilder.render(viewport);
+
+    if (sequence !== renderSequence || !currentPdf) {
+      textLayerBuilder.cancel();
+      return;
+    }
 
     const task = page.render({
       canvasContext: context,
@@ -381,6 +440,7 @@ function closeReader(): void {
   void saveReadingProgress();
   currentBookId = null;
   renderSequence++;
+  clearTextLayer();
 
   if (currentRenderTask) {
     currentRenderTask.cancel();

@@ -162,7 +162,9 @@
         <button class="page-arrow" id="prev-page" aria-label="صفحه قبلی">›</button>
         <div class="pdf-stage" id="pdf-stage">
           <p class="reader-loading" id="reader-loading">در حال آماده‌سازی کتاب…</p>
-          <canvas id="pdf-canvas" hidden></canvas>
+          <div class="pdf-page-container" id="pdf-page-container" hidden>
+            <canvas id="pdf-canvas"></canvas>
+          </div>
         </div>
         <button class="page-arrow" id="next-page" aria-label="صفحه بعدی">‹</button>
       </div>
