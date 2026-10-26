@@ -1,6 +1,15 @@
 import "./styles.css";
 import * as pdfjsLib from "pdfjs-dist";
 import pdfjsWorker from "pdfjs-dist/build/pdf.worker.min.mjs?url";
+import {
+  BaseDirectory,
+  mkdir,
+  readFile,
+  readTextFile,
+  remove,
+  writeFile,
+  writeTextFile,
+} from "@tauri-apps/plugin-fs";
 
 pdfjsLib.GlobalWorkerOptions.workerSrc = pdfjsWorker;
 
@@ -9,7 +18,9 @@ type Book = {
   name: string;
   size: string;
   addedAt: string;
-  file: File;
+  storagePath: string;
+  lastPage: number;
+  lastZoom: number;
 };
 
 const $ = <T extends HTMLElement>(selector: string) =>
@@ -24,6 +35,75 @@ const pdfInput = $("#pdf-input") as HTMLInputElement;
 const toast = $("#toast")!;
 
 let books: Book[] = [];
+const APP_DATA = BaseDirectory.AppLocalData;
+const BOOKS_DIRECTORY = "books";
+const LIBRARY_FILE = "library.json";
+
+type StoredBook = Omit<Book, "storagePath"> & { storagePath: string };
+
+async function saveLibrary(): Promise<void> {
+  await writeTextFile(
+    LIBRARY_FILE,
+    JSON.stringify(books, null, 2),
+    { baseDir: APP_DATA },
+  );
+}
+
+async function saveReadingProgress(): Promise<void> {
+  if (currentBookId === null) return;
+
+  const book = books.find((item) => item.id === currentBookId);
+  if (!book) return;
+
+  const page = Math.max(1, currentPage);
+  const zoom = Math.max(0.5, Math.min(2.5, currentZoom));
+  if (book.lastPage === page && book.lastZoom === zoom) return;
+
+  book.lastPage = page;
+  book.lastZoom = zoom;
+
+  try {
+    await saveLibrary();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    showToast(`ذخیرهٔ پیشرفت مطالعه ناموفق بود: ${message}`);
+  }
+}
+
+async function loadLibrary(): Promise<void> {
+  try {
+    const contents = await readTextFile(LIBRARY_FILE, { baseDir: APP_DATA });
+    const savedBooks = JSON.parse(contents) as StoredBook[];
+
+    books = savedBooks
+      .filter(
+        (book) =>
+          typeof book.id === "number" &&
+          typeof book.name === "string" &&
+          typeof book.size === "string" &&
+          typeof book.addedAt === "string" &&
+          typeof book.storagePath === "string",
+      )
+      .map((book) => ({
+        ...book,
+        // سازگاری با کتاب‌هایی که قبل از این قابلیت ذخیره شده‌اند.
+        lastPage:
+          typeof book.lastPage === "number" && book.lastPage >= 1
+            ? Math.floor(book.lastPage)
+            : 1,
+        lastZoom:
+          typeof book.lastZoom === "number" && book.lastZoom >= 0.5 && book.lastZoom <= 2.5
+            ? book.lastZoom
+            : 1,
+      }));
+  } catch {
+    // در اجرای اول هنوز فایل کتابخانه وجود ندارد.
+    books = [];
+  }
+
+  renderBooks();
+}
+
 let activeFilter = "all";
 let activeView = "library";
 let toastTimeout: number | undefined;
@@ -45,6 +125,7 @@ let currentPdf: pdfjsLib.PDFDocumentProxy | null = null;
 let currentRenderTask: { cancel: () => void; promise: Promise<void> } | null = null;
 let currentPage = 1;
 let currentZoom = 1;
+let currentBookId: number | null = null;
 let renderSequence = 0;
 
 function toPersianNumber(value: number): string {
@@ -128,10 +209,24 @@ function createBookCard(book: Book): HTMLElement {
   moreButton.textContent = "⋯";
   moreButton.title = "حذف از فهرست";
   moreButton.setAttribute("aria-label", `حذف ${book.name} از کتابخانه`);
-  moreButton.addEventListener("click", () => {
+  moreButton.addEventListener("click", async () => {
     books = books.filter((item) => item.id !== book.id);
-    renderBooks();
-    showToast("کتاب از فهرست این نشست حذف شد؛ فایل اصلی دست‌نخورده است.");
+
+    try {
+      await remove(book.storagePath, { baseDir: APP_DATA });
+    } catch {
+      // اگر نسخهٔ ذخیره‌شده قبلاً حذف شده باشد، حذف از کتابخانه ادامه پیدا می‌کند.
+    }
+
+    try {
+      await saveLibrary();
+      renderBooks();
+      showToast("کتاب از کتابخانه حذف شد؛ فایل اصلی انتخاب‌شده دست‌نخورده است.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      renderBooks();
+      showToast(`ذخیرهٔ تغییرات کتابخانه ناموفق بود: ${message}`);
+    }
   });
 
   actions.append(openButton, moreButton);
@@ -197,6 +292,7 @@ async function renderPdfPage(): Promise<void> {
 
     if (sequence !== renderSequence) return;
     currentRenderTask = null;
+    void saveReadingProgress();
 
     pageTotal.textContent = toPersianNumber(currentPdf.numPages);
     zoomLabel.textContent = `${toPersianNumber(Math.round(currentZoom * 100))}٪`;
@@ -247,7 +343,7 @@ async function openReader(book: Book): Promise<void> {
       await oldPdf.destroy();
     }
 
-    const data = new Uint8Array(await book.file.arrayBuffer());
+    const data = await readFile(book.storagePath, { baseDir: APP_DATA });
 
     const loadingTask = pdfjsLib.getDocument({
       data,
@@ -262,14 +358,15 @@ async function openReader(book: Book): Promise<void> {
     }
 
     currentPdf = pdf;
-    currentPage = 1;
-    currentZoom = 1;
+    currentBookId = book.id;
+    currentPage = Math.max(1, Math.min(book.lastPage || 1, pdf.numPages));
+    currentZoom = Math.max(0.5, Math.min(book.lastZoom || 1, 2.5));
 
     pageNumberInput.min = "1";
     pageNumberInput.max = String(pdf.numPages);
-    pageNumberInput.value = "1";
+    pageNumberInput.value = String(currentPage);
     pageTotal.textContent = toPersianNumber(pdf.numPages);
-    zoomLabel.textContent = "۱۰۰٪";
+    zoomLabel.textContent = `${toPersianNumber(Math.round(currentZoom * 100))}٪`;
 
     await renderPdfPage();
   } catch (error) {
@@ -281,6 +378,8 @@ async function openReader(book: Book): Promise<void> {
 }
 
 function closeReader(): void {
+  void saveReadingProgress();
+  currentBookId = null;
   renderSequence++;
 
   if (currentRenderTask) {
@@ -403,32 +502,62 @@ function selectView(view: string, label: string): void {
 $("#add-book")!.addEventListener("click", openFilePicker);
 $("#empty-add-book")!.addEventListener("click", openFilePicker);
 
-pdfInput.addEventListener("change", () => {
+pdfInput.addEventListener("change", async () => {
   const selectedFiles = Array.from(pdfInput.files ?? []);
   let added = 0;
+  let failed = 0;
+
+  try {
+    await mkdir(BOOKS_DIRECTORY, { baseDir: APP_DATA, recursive: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    showToast(`ساخت پوشهٔ کتاب‌ها ناموفق بود: ${message}`);
+    pdfInput.value = "";
+    return;
+  }
 
   for (const file of selectedFiles) {
     if (!file.name.toLowerCase().endsWith(".pdf") && file.type !== "application/pdf") {
       continue;
     }
 
+    const bookName = file.name.replace(/\.pdf$/i, "");
     const duplicate = books.some(
-      (book) => book.name === file.name && book.size === formatSize(file.size),
+      (book) => book.name === bookName && book.size === formatSize(file.size),
     );
 
     if (duplicate) continue;
 
-    books.push({
-      id: Date.now() + added,
-      name: file.name.replace(/\.pdf$/i, ""),
-      size: formatSize(file.size),
-      addedAt: new Date().toISOString(),
-      file,
-    });
-    added++;
+    const id = Date.now() + added;
+    const storagePath = `${BOOKS_DIRECTORY}/${id}.pdf`;
+
+    try {
+      const data = new Uint8Array(await file.arrayBuffer());
+      await writeFile(storagePath, data, { baseDir: APP_DATA });
+
+      books.push({
+        id,
+        name: bookName,
+        size: formatSize(file.size),
+        addedAt: new Date().toISOString(),
+        storagePath,
+        lastPage: 1,
+        lastZoom: 1,
+      });
+      added++;
+    } catch (error) {
+      failed++;
+      console.error("ذخیرهٔ فایل PDF ناموفق بود:", error);
+    }
   }
 
   if (added > 0) {
+    try {
+      await saveLibrary();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      showToast(`کتاب اضافه شد، اما ذخیرهٔ فهرست ناموفق بود: ${message}`);
+    }
     activeView = "library";
     document.querySelectorAll<HTMLButtonElement>(".nav-item[data-view]").forEach((button) => {
       button.classList.toggle("active", button.dataset.view === "library");
@@ -441,9 +570,17 @@ pdfInput.addEventListener("change", () => {
     });
     searchInput.value = "";
     renderBooks();
-    showToast(`${toPersianNumber(added)} کتاب به فهرست فعلی اضافه شد.`);
+    if (failed > 0) {
+      showToast(`${toPersianNumber(added)} کتاب ذخیره شد؛ ذخیرهٔ ${toPersianNumber(failed)} فایل ناموفق بود.`);
+    } else {
+      showToast(`${toPersianNumber(added)} کتاب به کتابخانه اضافه و ذخیره شد.`);
+    }
   } else if (selectedFiles.length > 0) {
-    showToast("این فایل قبلاً اضافه شده یا PDF معتبری انتخاب نشده است.");
+    showToast(
+      failed > 0
+        ? "ذخیرهٔ فایل‌های انتخاب‌شده ناموفق بود."
+        : "این فایل قبلاً اضافه شده یا PDF معتبری انتخاب نشده است.",
+    );
   }
 
   // اجازه می‌دهد کاربر همان فایل را دوباره انتخاب کند.
@@ -478,27 +615,5 @@ $("#theme-toggle")!.addEventListener("click", () => {
   document.body.classList.toggle("light-theme");
 });
 
-document.addEventListener("keydown", (event) => {
-  if (!readerOverlay.hidden) {
-    if (event.key === "Escape") {
-      closeReader();
-      return;
-    }
-    if (event.key === "ArrowLeft") changePage(1);
-    if (event.key === "ArrowRight") changePage(-1);
-    return;
-  }
-
-  if (event.key === "/" && !(event.target instanceof HTMLInputElement)) {
-    event.preventDefault();
-    searchInput.focus();
-  }
-
-  if (event.key === "Escape" && document.activeElement === searchInput) {
-    searchInput.value = "";
-    searchInput.blur();
-    renderBooks();
-  }
-});
-
-renderBooks();
+// کتابخانهٔ ذخیره‌شده هنگام راه‌اندازی برنامه بازیابی می‌شود.
+void loadLibrary();
